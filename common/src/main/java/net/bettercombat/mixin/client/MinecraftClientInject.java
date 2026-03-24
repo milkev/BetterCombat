@@ -12,6 +12,7 @@ import net.bettercombat.client.BetterCombatClientMod;
 import net.bettercombat.client.Keybindings;
 import net.bettercombat.client.animation.PlayerAttackAnimatable;
 import net.bettercombat.client.collision.TargetFinder;
+import net.bettercombat.client.particle.SlashParticleUtil;
 import net.bettercombat.config.ClientConfigWrapper;
 import net.bettercombat.logic.*;
 import net.bettercombat.network.Packets;
@@ -35,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -125,14 +127,23 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         var hand = getCurrentHand();
         if (hand == null) { return; }
         double upswingRate = hand.upswingRate();
-        if (upswingTicks > 0 || player.getAttackCooldownProgress(0) < (1.0 - upswingRate)) {
+        if (currentUpswingTicks() > 0 || player.getAttackCooldownProgress(0) < (1.0 - upswingRate)) {
             ci.cancel();
         }
     }
 
     private boolean isTargetingMineableBlock() {
         if (!BetterCombatClientMod.config.isMiningWithWeaponsEnabled) {
-            return false;
+            var whitelist = BetterCombatClientMod.config.mineWithWeaponWhitelist;
+            if (whitelist == null || whitelist.isEmpty()) {
+                return false;
+            }
+            var itemStack = player.getMainHandStack();
+            var id = Registries.ITEM.getId(itemStack.getItem()).toString();
+            if (!PatternMatching.matches(id, whitelist)) {
+                return false;
+            }
+            // Weapon is whitelisted — fall through to continue checks
         }
         var regex = BetterCombatClientMod.config.mineWithWeaponBlacklist;
         if (regex != null && !regex.isEmpty()) {
@@ -167,6 +178,10 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         if(!BetterCombatClientMod.config.isSwingThruGrassEnabled) {
             return false;
         }
+        if (BetterCombatClientMod.config.isSwingThruGrassSmart
+                && !this.hasTargetsInReach()) {
+            return false;
+        }
         var regex = BetterCombatClientMod.config.swingThruGrassBlacklist;
         if (regex == null || regex.isEmpty()) {
             return true;
@@ -178,10 +193,24 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
 
     private ItemStack upswingStack;
     private ItemStack lastAttacedWithItemStack;
-    private int upswingTicks = 0;
+    private WeaponSwing ongoingSwing;
+//    private int upswingTicks = 0;
     private int lastAttacked = 1000;
     private float lastSwingDuration = 0;
     private int comboReset = 0;
+
+    @Unique private int currentTime() {
+        if (player == null) {
+            return 0;
+        }
+        return player.age;
+    }
+    @Unique private int currentUpswingTicks() {
+        if (ongoingSwing == null) {
+            return 0;
+        }
+        return ongoingSwing.upswingTicksLeft(currentTime());
+    }
 
     private void startUpswing(WeaponAttributes attributes) {
         // Guard conditions
@@ -192,10 +221,10 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
             return;
         }
 
-        var hand = getCurrentHand();
-        if (hand == null) { return; }
-        float upswingRate = (float) hand.upswingRate();
-        if (upswingTicks > 0
+        var attackHand = getCurrentHand();
+        if (attackHand == null) { return; }
+        float upswingRate = (float) attackHand.upswingRate();
+        if (currentUpswingTicks() > 0
                 || attackCooldown > 0
                 || player.isUsingItem()
                 || player.getAttackCooldownProgress(0) < (1.0 - upswingRate)) {
@@ -213,19 +242,28 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         float attackCooldownTicksFloat = PlayerAttackHelper.getAttackCooldownTicksCapped(player); // `getAttackCooldownProgressPerTick` should be called `getAttackCooldownLengthTicks`
         int attackCooldownTicks = Math.round(attackCooldownTicksFloat);
         this.comboReset = Math.round(attackCooldownTicksFloat * BetterCombatMod.config.combo_reset_rate);
-        this.upswingTicks = Math.max(Math.round(attackCooldownTicksFloat * upswingRate), 1); // At least 1 upswing ticks
+        var upswingTicks = Math.max(Math.round(attackCooldownTicksFloat * upswingRate), 1); // At least 1 upswing ticks
+        this.ongoingSwing = new WeaponSwing(attackHand, currentTime(), upswingTicks, attackCooldownTicksFloat);
         this.lastSwingDuration = attackCooldownTicksFloat;
         this.itemUseCooldown = attackCooldownTicks; // Vanilla MinecraftClient property for compatibility
         setMiningCooldown(attackCooldownTicks);
 //        System.out.println("Starting upswingTicks: " + upswingTicks);
-        String animationName = hand.attack().animation();
-        boolean isOffHand = hand.isOffHand();
+        String animationName = attackHand.attack().animation();
+        boolean isOffHand = attackHand.isOffHand();
         var animatedHand = AnimatedHand.from(isOffHand, attributes.isTwoHanded());
         ((PlayerAttackAnimatable) player).playAttackAnimation(animationName, animatedHand, attackCooldownTicksFloat, upswingRate);
-        var packet = new Packets.AttackAnimation(player.getId(), animatedHand, animationName, attackCooldownTicksFloat, upswingRate);
+
+        var particles = SlashParticleUtil.trailParticlesFromAttack(attackHand);
+        var appearance = SlashParticleUtil.appearanceFromItemStack(attackHand.itemStack());
+        var packet = new Packets.AttackAnimation(
+                player.getId(), animatedHand, animationName, attackCooldownTicksFloat, upswingRate,
+                (float)PlayerAttackHelper.getStaticRange(player, attackHand.itemStack()),
+                upswingTicks,
+                new Packets.SwingParticles(particles, appearance)
+        );
         Platform.networkC2S_Send(packet);
         BetterCombatClientEvents.ATTACK_START.invoke(handler -> {
-            handler.onPlayerAttackStart(player, hand);
+            handler.onPlayerAttackStart(player, attackHand);
         });
     }
 
@@ -237,12 +275,9 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
     }
 
     private void attackFromUpswingIfNeeded() {
-        if (upswingTicks > 0) {
-            --upswingTicks;
-            if (upswingTicks == 0) {
-                performAttack();
-                upswingStack = null;
-            }
+        if (ongoingSwing != null && currentUpswingTicks() == 0) {
+            performAttack();
+            upswingStack = null;
         }
     }
 
@@ -281,6 +316,7 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
             if (hand != null) {
                 WeaponAttributes attributes = WeaponRegistry.getAttributes(hand.itemStack());
                 var range = PlayerAttackHelper.getRangeForItem(player, hand.itemStack());
+                range *= hand.attack().rangeMultiplier();
                 if (attributes != null && attributes.attacks() != null) {
                     targets = TargetFinder.findAttackTargets(
                             player,
@@ -300,6 +336,17 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         }
         targetsInReach = null;
         lastAttacked += 1;
+
+        if (ongoingSwing != null) {
+            var time = currentTime();
+            var swing = ongoingSwing; // Store in local for further checks
+            if (swing.ticksLeft(time) <= 0) {
+                ongoingSwing = null;
+            }
+            if (!player.isAlive() || !swing.isValid(time)) {
+                cancelWeaponSwing();
+            }
+        }
         cancelSwingIfNeeded();
         attackFromUpswingIfNeeded();
         updateTargetsIfNeeded();
@@ -328,7 +375,11 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
             return;
         }
 
-        var hand = getCurrentHand();
+        var weaponSwing = this.ongoingSwing;
+        if (weaponSwing == null) {
+            return;
+        }
+        var hand = weaponSwing.attackHand();
         if (hand == null) { return; }
         var attack = hand.attack();
         var upswingRate = hand.upswingRate();
@@ -339,6 +390,7 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
 
         var cursorTarget = getCursorTarget();
         var range = PlayerAttackHelper.getRangeForItem(player, hand.itemStack());
+        range *= hand.attack().rangeMultiplier();
         List<Entity> targets = TargetFinder.findAttackTargets(
                 player,
                 cursorTarget,
@@ -358,7 +410,7 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
 
         // Mimic logic of:
         // ClientPlayerInteractionManager.attackEntity(PlayerEntity player, Entity target)
-        var packet = new Packets.C2S_AttackRequest(getComboCount(), player.isSneaking(), player.getInventory().selectedSlot, targets);
+        var packet = new Packets.C2S_AttackRequest(getComboCount(), player.isSneaking(), player.getInventory().selectedSlot, cursorTarget, targets);
         Platform.networkC2S_Send(packet);
         for (var target: targets) {
             player.attack(target);
@@ -367,6 +419,10 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         BetterCombatClientEvents.ATTACK_HIT.invoke(handler -> {
             handler.onPlayerAttackStart(player, hand, targets, cursorTarget);
         });
+
+        var particles = SlashParticleUtil.trailParticlesFromAttack(hand);
+        var appearance = SlashParticleUtil.appearanceFromItemStack(hand.itemStack());
+        SlashParticleUtil.spawnParticles(player, hand.isOffHand(), (float)PlayerAttackHelper.getStaticRange(player, hand.itemStack()), particles, appearance);
 
         setComboCount(getComboCount() + 1);
         if (!hand.isOffHand()) {
@@ -403,7 +459,7 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
         var packet = Packets.AttackAnimation.stop(player.getId(), downWind);
         Platform.networkC2S_Send(packet);
         upswingStack = null;
-        upswingTicks = 0;
+        ongoingSwing = null;
         itemUseCooldown = 0;
         setMiningCooldown(0);
     }
@@ -431,13 +487,21 @@ public abstract class MinecraftClientInject implements MinecraftClient_BetterCom
 
     @Override
     public int getUpswingTicks() {
-        return upswingTicks;
+        return currentUpswingTicks();
     }
 
     @Override
     public void cancelUpswing() {
-        if (upswingTicks > 0) {
+        if (currentUpswingTicks() > 0) {
             cancelWeaponSwing();
         }
+    }
+
+    @Override
+    public AttackHand getCurrentAttackHand() {
+        if (this.ongoingSwing != null) {
+            return this.ongoingSwing.attackHand();
+        }
+        return null;
     }
 }

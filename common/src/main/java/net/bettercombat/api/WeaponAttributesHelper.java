@@ -3,17 +3,9 @@ package net.bettercombat.api;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
-import net.bettercombat.logic.ItemStackNBTWeaponAttributes;
-import net.bettercombat.logic.WeaponRegistry;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
 
 import java.io.InvalidObjectException;
 import java.io.Reader;
-import java.io.StringReader;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 
@@ -31,22 +23,26 @@ public class WeaponAttributesHelper {
             for(int i = 0; i < b.attacks().length; ++i) {
                 var base = (a.attacks() != null && a.attacks().length > i)
                         ? a.attacks()[i]
-                        : new WeaponAttributes.Attack(null, null, 0, 0, 0, null, null, null);
+                        : WeaponAttributes.Attack.empty();
                 var override = b.attacks()[i];
                 var attack = new WeaponAttributes.Attack(
                         override.conditions() != null ? override.conditions() : base.conditions(),
                         override.hitbox() != null ? override.hitbox() : base.hitbox(),
                         override.damageMultiplier() != 0 ? override.damageMultiplier() : base.damageMultiplier(),
+                        override.movementSpeedMultiplier() != 0 ? override.movementSpeedMultiplier() : base.movementSpeedMultiplier(),
+                        override.rangeMultiplier() != 0 ? override.rangeMultiplier() : base.rangeMultiplier(),
                         override.angle() != 0 ? override.angle() : base.angle(),
                         override.upswing() != 0 ? override.upswing() : base.upswing(),
                         override.animation() != null ? override.animation() : base.animation(),
                         override.swingSound() != null ? override.swingSound() : base.swingSound(),
-                        override.impactSound() != null ? override.impactSound() : base.impactSound());
+                        override.impactSound() != null ? override.impactSound() : base.impactSound(),
+                        (override.trailParticles() != null && !override.trailParticles().isEmpty()) ? override.trailParticles() : base.trailParticles());
                 overrideAttacks.add(attack);
             }
             attacks = overrideAttacks.toArray(new WeaponAttributes.Attack[0]);
         }
-        return new WeaponAttributes(attackRange, rangeBonus, pose, off_hand_pose, isTwoHanded, category, attacks);
+        var trailAppearance = b.trailAppearance() != null ? b.trailAppearance() : a.trailAppearance();
+        return new WeaponAttributes(attackRange, rangeBonus, pose, off_hand_pose, isTwoHanded, category, attacks, trailAppearance);
     }
 
     public static void validate(WeaponAttributes attributes) throws Exception {
@@ -82,57 +78,6 @@ public class WeaponAttributesHelper {
         }
         if (attack.animation() == null || attack.animation().length() == 0) {
             throw new InvalidObjectException("Undefined `animation`");
-        }
-    }
-
-    public static final String nbtTag = "weapon_attributes";
-    public static WeaponAttributes readFromNBT(ItemStack itemStack) {
-        var component = itemStack.get(DataComponentTypes.CUSTOM_DATA);
-        if (component == null) {
-            return null;
-        }
-        var nbt = component.getNbt();
-        var attributedItemStack = (ItemStackNBTWeaponAttributes) ((Object)itemStack);
-        var string = nbt.getString(nbtTag);
-        if (string != null && !string.isEmpty() && !attributedItemStack.hasInvalidAttributes()) {
-            var cachedAttributes = attributedItemStack.getWeaponAttributes();
-            if(cachedAttributes != null) {
-                // System.out.println("NBT Attributes - Cache");
-                return cachedAttributes;
-            }
-            Identifier itemId = Registries.ITEM.getId(itemStack.getItem());
-            try {
-                var json = new StringReader(string);
-                var container = decode(json);
-                var attributes = WeaponRegistry.resolveAttributes(itemId, container);
-                if (attributes == null) {
-                    attributedItemStack.setInvalidAttributes(true);
-                }
-                attributedItemStack.setWeaponAttributes(attributes);
-                // System.out.println("NBT Attributes - Resolved");
-                return attributes;
-            } catch (Exception e) {
-                System.err.println("Failed to resolve weapon attributes from ItemStack of item: " + itemId);
-                System.err.println(e.getMessage());
-                attributedItemStack.setInvalidAttributes(true);
-            }
-        }
-        return null;
-    }
-
-    public static void writeToNBT(ItemStack itemStack, AttributesContainer container) {
-        Identifier itemId = Registries.ITEM.getId(itemStack.getItem());
-        var attributedItemStack = (ItemStackNBTWeaponAttributes) ((Object)itemStack);
-        var component = itemStack.getOrDefault(DataComponentTypes.CUSTOM_DATA, NbtComponent.DEFAULT);
-        try {
-            var nbt = component.getNbt();
-            var json = encode(container);
-            nbt.putString(nbtTag, json);
-            attributedItemStack.setInvalidAttributes(false);
-            attributedItemStack.setWeaponAttributes(null);
-        } catch (Exception e) {
-            System.err.println("Failed to write weapon attributes to ItemStack of item: " + itemId);
-            System.err.println(e.getMessage());
         }
     }
 

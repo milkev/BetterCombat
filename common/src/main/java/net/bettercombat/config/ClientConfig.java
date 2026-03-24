@@ -13,6 +13,8 @@ public class ClientConfig implements ConfigData {
     @ConfigEntry.Gui.Tooltip
     public boolean isSwingThruGrassEnabled = true;
     @ConfigEntry.Gui.Tooltip
+    public boolean isSwingThruGrassSmart = true;
+    @ConfigEntry.Gui.Tooltip
     public boolean isAttackInsteadOfMineWhenEnemiesCloseEnabled = true;
     @ConfigEntry.Gui.Tooltip
     public boolean isHighlightCrosshairEnabled = true;
@@ -20,11 +22,13 @@ public class ClientConfig implements ConfigData {
     @ConfigEntry.Gui.Tooltip
     public int hudHighlightColor = 0xFF0000;
     @ConfigEntry.Gui.Tooltip
+    public boolean isShowingWeaponTrails = true;
+    @ConfigEntry.Gui.Tooltip
     public boolean isShowingArmsInFirstPerson = false;
     @ConfigEntry.Gui.Tooltip
     public boolean isShowingOtherHandFirstPerson = true;
     @ConfigEntry.Gui.Tooltip
-    public boolean isSweepingParticleEnabled = true;
+    public boolean isSweepingParticleEnabled = false;
     @ConfigEntry.Gui.Tooltip
     public boolean isTooltipAttackRangeEnabled = true;
     @ConfigEntry.Gui.Tooltip
@@ -38,6 +42,8 @@ public class ClientConfig implements ConfigData {
     public String swingThruGrassBlacklist = "farmersdelight";
     @ConfigEntry.Gui.Tooltip
     public String mineWithWeaponBlacklist = "";
+    @ConfigEntry.Gui.Tooltip
+    public String mineWithWeaponWhitelist = "";
     @ConfigEntry.Gui.Tooltip
     public TriStateAuto firstPersonAnimations = TriStateAuto.AUTO;
     @ConfigEntry.Gui.Tooltip

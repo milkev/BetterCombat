@@ -1,3 +1,70 @@
+# 2.3.2
+
+- Adjusted windup time and animation for vanilla Mace, to be more instant-like
+- Adjusted windup time for vanilla axes
+- Fixed being unable to attack after dying during the windup phase of an attack, #548
+- Fixed crashing on invalid particle config #568
+- Added mine with weapons whitelist config #574
+- Improved Friend or Foe logic on FTB Teams membership, thanks to LeDok #571
+
+# 2.3.1
+
+- Fix unnecessary verbose logging
+- Fix particle mirroring for left-handedness #543 
+
+# 2.3.0
+
+- Add weapon trail particles, huge thanks to @Malfu, for developing the concept and providing the assets
+  - Defaults are configurable
+  - Supports weapon attribute specific configuration
+- Add new attack specific fields
+  - `range_multiplier` - Multiplies the base attack range for a specific weapon swing (1.0 = no change)
+  - `movement_speed_multiplier` - Multiplies movement speed while for a specific weapon swing (1.0 = no change)
+- Add data tracker priority, attempt to fix #524
+
+# 2.2.5
+
+- Fix damage done with daggers #495 
+
+# 2.2.4
+
+- Fix crash on NeoForge alongside FTBTeams
+
+# 2.2.3
+
+- Improve FTB Teams support, thanks to Muon #115
+
+# 2.2.2
+
+- Friend or Foe logic now supports FTB Teams membership
+
+# 2.2.1
+
+WARNING: Make sure server and clients use the same version of the mod! (Clients with Better Combat 2.1.X will not function properly on servers with Better Combat 2.2.X)
+
+Improve Friend or Foe logic:
+- Configurable relation to owned (tamed) pets
+- Configurable relation to teammates (new default is NEUTRAL)
+- Add entity type tag based relations (server config > `player_relation_tags`)
+- Add serverside checking of entity relations
+
+Implications of new defaults:
+- When not using teams, pets of other players do not receive damage from cleaving
+- When using teams, disabling friendly fire (`/team modify my_team friendlyFire false`) will prevent all kinds of damage against teammates and pets of teammates
+
+Other changes:
+- Smart swing thru grass is now enabled by default
+
+# 2.1.6
+
+- Update translations
+
+# 2.1.5
+
+- Add smart Swing Thru Grass client config (disabled by default), to destroy blocks when no targets in range
+- Fix unresolved (compact) weapon attribute containers, referencing them would cause a crash #478
+- Fix weapon attributes with zero attacks (resulting due to conditions) crashing #472 
+
 # 2.1.4
 
 - Fix corrupted japanese translation
